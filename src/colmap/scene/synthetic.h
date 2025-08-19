@@ -32,14 +32,17 @@
 #include "colmap/scene/database.h"
 #include "colmap/scene/reconstruction.h"
 #include "colmap/sensor/models.h"
-#include "colmap/util/types.h"
 
 namespace colmap {
 
 struct SyntheticDatasetOptions {
-  int num_cameras = 2;
-  int num_images = 10;
+  int num_rigs = 2;
+  int num_cameras_per_rig = 1;
+  int num_frames_per_rig = 5;
   int num_points3D = 100;
+
+  double sensor_from_rig_translation_stddev = 0.05;
+  double sensor_from_rig_rotation_stddev = 5.;  // in degrees
 
   int camera_width = 1024;
   int camera_height = 768;

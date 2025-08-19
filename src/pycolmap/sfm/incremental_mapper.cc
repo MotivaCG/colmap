@@ -62,6 +62,10 @@ void BindIncrementalPipeline(py::module& m) {
       .def_readwrite("num_threads",
                      &Opts::num_threads,
                      "The number of threads to use during reconstruction.")
+      .def_readwrite(
+          "random_seed",
+          &Opts::random_seed,
+          "PRNG seed for all stochastic methods during reconstruction.")
       .def_readwrite("min_focal_length_ratio",
                      &Opts::min_focal_length_ratio,
                      "The threshold used to filter and ignore images with "
@@ -77,15 +81,18 @@ void BindIncrementalPipeline(py::module& m) {
       .def_readwrite(
           "ba_refine_focal_length",
           &Opts::ba_refine_focal_length,
-          "Which intrinsic parameters to optimize during the reconstruction.")
+          "Whether to refine the focal length during the reconstruction.")
       .def_readwrite(
           "ba_refine_principal_point",
           &Opts::ba_refine_principal_point,
-          "Which intrinsic parameters to optimize during the reconstruction.")
+          "Whether to refine the principal point during the reconstruction.")
       .def_readwrite(
           "ba_refine_extra_params",
           &Opts::ba_refine_extra_params,
-          "Which intrinsic parameters to optimize during the reconstruction.")
+          "Whether to refine extra parameters during the reconstruction.")
+      .def_readwrite("ba_refine_sensor_from_rig",
+                     &Opts::ba_refine_sensor_from_rig,
+                     "Whether to refine rig poses during the reconstruction.")
       .def_readwrite(
           "ba_min_num_residuals_for_cpu_multi_threading",
           &Opts::ba_min_num_residuals_for_cpu_multi_threading,
@@ -104,16 +111,16 @@ void BindIncrementalPipeline(py::module& m) {
           &Opts::ba_local_max_num_iterations,
           "The maximum number of local bundle adjustment iterations.")
       .def_readwrite(
-          "ba_global_images_ratio",
-          &Opts::ba_global_images_ratio,
+          "ba_global_frames_ratio",
+          &Opts::ba_global_frames_ratio,
           "The growth rates after which to perform global bundle adjustment.")
       .def_readwrite(
           "ba_global_points_ratio",
           &Opts::ba_global_points_ratio,
           "The growth rates after which to perform global bundle adjustment.")
       .def_readwrite(
-          "ba_global_images_freq",
-          &Opts::ba_global_images_freq,
+          "ba_global_frames_freq",
+          &Opts::ba_global_frames_freq,
           "The growth rates after which to perform global bundle adjustment.")
       .def_readwrite(
           "ba_global_points_freq",
@@ -164,8 +171,8 @@ void BindIncrementalPipeline(py::module& m) {
                      &Opts::snapshot_path,
                      "Path to a folder in which reconstruction snapshots will "
                      "be saved during incremental reconstruction.")
-      .def_readwrite("snapshot_images_freq",
-                     &Opts::snapshot_images_freq,
+      .def_readwrite("snapshot_frames_freq",
+                     &Opts::snapshot_frames_freq,
                      "Frequency of registered images according to which "
                      "reconstruction snapshots will be saved.")
       .def_readwrite(
@@ -173,10 +180,15 @@ void BindIncrementalPipeline(py::module& m) {
           &Opts::image_names,
           "Optional list of image names to reconstruct. If no images are "
           "specified, all images will be reconstructed by default.")
-      .def_readwrite("fix_existing_images",
-                     &Opts::fix_existing_images,
+      .def_readwrite("fix_existing_frames",
+                     &Opts::fix_existing_frames,
                      "If reconstruction is provided as input, fix the existing "
-                     "image poses.")
+                     "frame poses.")
+      .def_readwrite("constant_cameras",
+                     &Opts::constant_cameras,
+                     "List of cameras for which to fix the camera parameters "
+                     "independent of refine_focal_length, "
+                     "refine_principal_point, and refine_extra_params.")
       .def_readwrite(
           "mapper", &Opts::mapper, "Options of the IncrementalMapper.")
       .def_readwrite("triangulation",
@@ -331,11 +343,20 @@ void BindIncrementalMapperOptions(py::module& m) {
       .def_readwrite("max_reg_trials",
                      &Opts::max_reg_trials,
                      "Maximum number of trials to register an image.")
-      .def_readwrite("fix_existing_images",
-                     &Opts::fix_existing_images,
+      .def_readwrite("fix_existing_frames",
+                     &Opts::fix_existing_frames,
                      "If reconstruction is provided as input, fix the existing "
-                     "image poses.")
+                     "frame poses.")
+      .def_readwrite("constant_cameras",
+                     &Opts::constant_cameras,
+                     "List of cameras for which to fix the camera parameters "
+                     "independent of refine_focal_length, "
+                     "refine_principal_point, and refine_extra_params.")
       .def_readwrite("num_threads", &Opts::num_threads, "Number of threads.")
+      .def_readwrite(
+          "random_seed",
+          &Opts::random_seed,
+          "PRNG seed for all stochastic methods during reconstruction.")
       .def_readwrite("image_selection_method",
                      &Opts::image_selection_method,
                      "Method to find and select next best image to register.")
@@ -378,17 +399,19 @@ void BindIncrementalMapperImpl(py::module& m) {
              const IncrementalMapper::Options& options,
              int image_id1,
              int image_id2)
-              -> py::typing::Optional<py::typing::Tuple<image_t, image_t>> {
+              -> py::typing::Optional<
+                  py::typing::Tuple<py::typing::Tuple<image_t, image_t>,
+                                    Rigid3d>> {
             // Explicitly handle the conversion
             // from -1 (int) to kInvalidImageId (uint32_t).
             image_t image_id1_cast = image_id1;
             image_t image_id2_cast = image_id2;
-            TwoViewGeometry two_view_geometry;
+            Rigid3d cam2_from_cam1;
             const bool success = self.FindInitialImagePair(
-                options, two_view_geometry, image_id1_cast, image_id2_cast);
+                options, image_id1_cast, image_id2_cast, cam2_from_cam1);
             if (success) {
               const auto pair = std::make_pair(image_id1_cast, image_id2_cast);
-              return py::cast(std::make_pair(pair, two_view_geometry));
+              return py::cast(std::make_pair(pair, cam2_from_cam1));
             } else {
               return py::none();
             }
@@ -401,12 +424,12 @@ void BindIncrementalMapperImpl(py::module& m) {
           [](IncrementalMapper& self,
              const IncrementalMapper::Options& options,
              const image_t image_id1,
-             const image_t image_id2) -> py::typing::Optional<TwoViewGeometry> {
-            TwoViewGeometry two_view_geometry;
+             const image_t image_id2) -> py::typing::Optional<Rigid3d> {
+            Rigid3d cam2_from_cam1;
             const bool success = self.EstimateInitialTwoViewGeometry(
-                options, image_id1, image_id2, two_view_geometry);
+                options, image_id1, image_id2, cam2_from_cam1);
             if (success)
-              return py::cast(two_view_geometry);
+              return py::cast(cam2_from_cam1);
             else
               return py::none();
           },
@@ -467,19 +490,21 @@ void BindIncrementalMapperImpl(py::module& m) {
            "ba_options"_a,
            "tri_options"_a,
            "normalize_reconstruction"_a = true)
-      .def("filter_images", &IncrementalMapper::FilterImages, "options"_a)
+      .def("filter_frames", &IncrementalMapper::FilterFrames, "options"_a)
       .def("filter_points", &IncrementalMapper::FilterPoints, "options"_a)
       .def_property_readonly("reconstruction",
                              &IncrementalMapper::Reconstruction)
       .def_property_readonly("observation_manager",
                              &IncrementalMapper::ObservationManager)
       .def_property_readonly("triangulator", &IncrementalMapper::Triangulator)
-      .def_property_readonly("filtered_images",
-                             &IncrementalMapper::FilteredImages)
-      .def_property_readonly("existing_image_ids",
-                             &IncrementalMapper::ExistingImageIds)
+      .def_property_readonly("filtered_frames",
+                             &IncrementalMapper::FilteredFrames)
+      .def_property_readonly("existing_frame_ids",
+                             &IncrementalMapper::ExistingFrameIds)
       .def("reset_initialization_stats",
            &IncrementalMapper::ResetInitializationStats)
+      .def_property_readonly("num_reg_frames_per_rig",
+                             &IncrementalMapper::NumRegFramesPerRig)
       .def_property_readonly("num_reg_images_per_camera",
                              &IncrementalMapper::NumRegImagesPerCamera)
       .def("num_total_reg_images", &IncrementalMapper::NumTotalRegImages)
