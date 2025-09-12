@@ -613,12 +613,13 @@ void RunPointTriangulatorImpl(
   if (refine_loop) {
     PrintHeading1("Refinement loop (BA + complete/merge + filter)");
 
-    const Database db(database_path);
+    auto database = Database::Open(database_path);
     const size_t min_num_matches = static_cast<size_t>(options.min_num_matches);
     std::unordered_set<std::string> image_names(options.image_names.begin(),
                                                 options.image_names.end());
+
     auto database_cache = DatabaseCache::Create(
-        db, min_num_matches, options.ignore_watermarks, image_names);
+        *database, min_num_matches, options.ignore_watermarks, image_names);
 
     IncrementalMapper mapper(database_cache);
     mapper.BeginReconstruction(reconstruction);
