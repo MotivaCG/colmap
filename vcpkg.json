@@ -42,6 +42,16 @@
             "host": true
         }
     ],
+    "overrides": [
+        {
+            "name": "metis",
+            "version": "2022-07-27"
+        },
+        {
+            "name": "gklib",
+            "version": "2023-03-27"
+        }
+    ],
     "default-features": [
         "gui",
         "download"
@@ -64,7 +74,7 @@
             "description": "Build with GUI support.",
             "dependencies": [
                 "glew",
-                "qt5-base"
+                "qtbase"
             ]
         },
         "cgal": {
@@ -79,7 +89,7 @@
                 {
                     "name": "curl",
                     "features": [
-                        "schannel"
+                        "sspi"
                     ],
                     "platform": "windows"
                 },

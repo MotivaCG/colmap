@@ -63,7 +63,6 @@ namespace colmap {
 constexpr int kSqSiftDescriptorNorm = 512 * 512;
 
 bool SiftExtractionOptions::Check() const {
-  CHECK_OPTION_GT(max_image_size, 0);
   CHECK_OPTION_GT(max_num_features, 0);
   CHECK_OPTION_GT(octave_resolution, 0);
   CHECK_OPTION_GT(peak_threshold, 0.0);
@@ -573,7 +572,7 @@ class SiftGPUFeatureExtractor : public FeatureExtractor {
                                     << -std::min(0, options.sift->first_octave);
     sift_gpu_args.push_back("-maxd");
     sift_gpu_args.push_back(
-        std::to_string(options.sift->max_image_size * compensation_factor));
+        std::to_string(options.max_image_size * compensation_factor));
 
     // Keep the highest level features.
     sift_gpu_args.push_back("-tc2");
@@ -647,7 +646,7 @@ class SiftGPUFeatureExtractor : public FeatureExtractor {
     // first octave in the pyramid (which is the 'first_octave').
     const int compensation_factor =
         1 << -std::min(0, options_.sift->first_octave);
-    THROW_CHECK_EQ(options_.sift->max_image_size * compensation_factor,
+    THROW_CHECK_EQ(options_.max_image_size * compensation_factor,
                    sift_gpu_.GetMaxDimension());
 
     std::lock_guard<std::mutex> lock(*sift_gpu_mutexes_[sift_gpu_.gpu_index]);
@@ -1095,6 +1094,7 @@ class SiftCPUFeatureMatcher : public FeatureMatcher {
 
     std::function<bool(float, float, float, float)> guided_filter;
     if (two_view_geometry->config == TwoViewGeometry::CALIBRATED ||
+        two_view_geometry->config == TwoViewGeometry::CALIBRATED_RIG ||
         two_view_geometry->config == TwoViewGeometry::UNCALIBRATED) {
       guided_filter =
           [&](const float x1, const float y1, const float x2, const float y2) {
@@ -1372,6 +1372,7 @@ class SiftGPUFeatureMatcher : public FeatureMatcher {
     float* F_ptr = nullptr;
     float* H_ptr = nullptr;
     if (two_view_geometry->config == TwoViewGeometry::CALIBRATED ||
+        two_view_geometry->config == TwoViewGeometry::CALIBRATED_RIG ||
         two_view_geometry->config == TwoViewGeometry::UNCALIBRATED) {
       F = two_view_geometry->F.cast<float>();
       F_ptr = F.data();
