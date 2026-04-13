@@ -34,8 +34,10 @@
 
 #include <filesystem>
 #include <fstream>
+#include <locale>
 #include <sstream>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 namespace colmap {
@@ -173,7 +175,7 @@ struct ReaderWriterBinaryStringStream : public ReaderWriter {
   std::stringstream points3D_stream_;
 };
 
-std::string ReadFileAsString(const std::string& path) {
+std::string ReadFileAsString(const std::filesystem::path& path) {
   std::fstream file(path);
   THROW_CHECK(file.good());
   std::stringstream buf;
@@ -184,11 +186,11 @@ std::string ReadFileAsString(const std::string& path) {
 struct ReaderWriterFileStream : public ReaderWriter {
   explicit ReaderWriterFileStream(const std::string& ext)
       : test_dir_(CreateTestDir()),
-        rigs_path_((test_dir_ / ("rigs." + ext)).string()),
-        cameras_path_((test_dir_ / ("cameras." + ext)).string()),
-        frames_path_((test_dir_ / ("frames." + ext)).string()),
-        images_path_((test_dir_ / ("images." + ext)).string()),
-        points3D_path_((test_dir_ / ("points3D." + ext)).string()) {}
+        rigs_path_(test_dir_ / ("rigs." + ext)),
+        cameras_path_(test_dir_ / ("cameras." + ext)),
+        frames_path_(test_dir_ / ("frames." + ext)),
+        images_path_(test_dir_ / ("images." + ext)),
+        points3D_path_(test_dir_ / ("points3D." + ext)) {}
 
   virtual std::string RigsStr() const override {
     return ReadFileAsString(rigs_path_);
@@ -208,11 +210,11 @@ struct ReaderWriterFileStream : public ReaderWriter {
 
  protected:
   const std::filesystem::path test_dir_;
-  const std::string rigs_path_;
-  const std::string cameras_path_;
-  const std::string frames_path_;
-  const std::string images_path_;
-  const std::string points3D_path_;
+  const std::filesystem::path rigs_path_;
+  const std::filesystem::path cameras_path_;
+  const std::filesystem::path frames_path_;
+  const std::filesystem::path images_path_;
+  const std::filesystem::path points3D_path_;
 };
 
 struct ReaderWriterTextFileStream : public ReaderWriterFileStream {
@@ -369,6 +371,257 @@ INSTANTIATE_TEST_SUITE_P(
         []() { return std::make_unique<ReaderWriterBinaryStringStream>(); },
         []() { return std::make_unique<ReaderWriterTextFileStream>(); },
         []() { return std::make_unique<ReaderWriterBinaryFileStream>(); }));
+
+TEST(ExportNVM, Nominal) {
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 1;
+  synthetic_dataset_options.num_cameras_per_rig = 1;
+  synthetic_dataset_options.num_frames_per_rig = 3;
+  synthetic_dataset_options.num_points3D = 10;
+  synthetic_dataset_options.camera_model_id = SimpleRadialCameraModel::model_id;
+  SynthesizeDataset(synthetic_dataset_options, &reconstruction);
+
+  const auto test_dir = CreateTestDir();
+  const auto nvm_path = test_dir / "export.nvm";
+
+  EXPECT_TRUE(ExportNVM(reconstruction, nvm_path));
+  EXPECT_TRUE(std::filesystem::exists(nvm_path));
+}
+
+TEST(ExportNVM, UnsupportedCameraModel) {
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 1;
+  synthetic_dataset_options.num_cameras_per_rig = 1;
+  synthetic_dataset_options.num_frames_per_rig = 1;
+  synthetic_dataset_options.num_points3D = 5;
+  synthetic_dataset_options.camera_model_id = FullOpenCVCameraModel::model_id;
+  synthetic_dataset_options.camera_params = {
+      1280, 1280, 512, 384, 0.05, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  SynthesizeDataset(synthetic_dataset_options, &reconstruction);
+
+  const auto test_dir = CreateTestDir();
+  const auto nvm_path = test_dir / "export.nvm";
+
+  EXPECT_FALSE(ExportNVM(reconstruction, nvm_path));
+}
+
+TEST(ExportCam, Nominal) {
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 1;
+  synthetic_dataset_options.num_cameras_per_rig = 1;
+  synthetic_dataset_options.num_frames_per_rig = 2;
+  synthetic_dataset_options.num_points3D = 10;
+  synthetic_dataset_options.camera_model_id = SimpleRadialCameraModel::model_id;
+  SynthesizeDataset(synthetic_dataset_options, &reconstruction);
+
+  const auto test_dir = CreateTestDir();
+
+  EXPECT_TRUE(ExportCam(reconstruction, test_dir));
+
+  int num_cam_files = 0;
+  for (const auto& entry : std::filesystem::directory_iterator(test_dir)) {
+    if (entry.path().extension() == ".cam") {
+      num_cam_files++;
+    }
+  }
+  EXPECT_EQ(num_cam_files, reconstruction.NumRegImages());
+}
+
+TEST(ExportCam, UnsupportedCameraModel) {
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 1;
+  synthetic_dataset_options.num_cameras_per_rig = 1;
+  synthetic_dataset_options.num_frames_per_rig = 1;
+  synthetic_dataset_options.num_points3D = 5;
+  synthetic_dataset_options.camera_model_id = FullOpenCVCameraModel::model_id;
+  synthetic_dataset_options.camera_params = {
+      1280, 1280, 512, 384, 0.05, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  SynthesizeDataset(synthetic_dataset_options, &reconstruction);
+
+  const auto test_dir = CreateTestDir();
+
+  EXPECT_FALSE(ExportCam(reconstruction, test_dir));
+}
+
+TEST(ExportRecon3D, Nominal) {
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 1;
+  synthetic_dataset_options.num_cameras_per_rig = 1;
+  synthetic_dataset_options.num_frames_per_rig = 3;
+  synthetic_dataset_options.num_points3D = 15;
+  synthetic_dataset_options.camera_model_id = SimpleRadialCameraModel::model_id;
+  SynthesizeDataset(synthetic_dataset_options, &reconstruction);
+
+  const auto test_dir = CreateTestDir();
+
+  EXPECT_TRUE(ExportRecon3D(reconstruction, test_dir));
+
+  const std::filesystem::path recon_dir = test_dir / "Recon";
+  EXPECT_TRUE(std::filesystem::exists(recon_dir / "synth_0.out"));
+  EXPECT_TRUE(std::filesystem::exists(recon_dir / "urd-images.txt"));
+  EXPECT_TRUE(std::filesystem::exists(recon_dir / "imagemap_0.txt"));
+}
+
+TEST(ExportRecon3D, UnsupportedCameraModel) {
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 1;
+  synthetic_dataset_options.num_cameras_per_rig = 1;
+  synthetic_dataset_options.num_frames_per_rig = 1;
+  synthetic_dataset_options.num_points3D = 5;
+  synthetic_dataset_options.camera_model_id = FullOpenCVCameraModel::model_id;
+  synthetic_dataset_options.camera_params = {
+      1280, 1280, 512, 384, 0.05, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  SynthesizeDataset(synthetic_dataset_options, &reconstruction);
+
+  const auto test_dir = CreateTestDir();
+
+  EXPECT_FALSE(ExportRecon3D(reconstruction, test_dir));
+}
+
+TEST(ExportBundler, Nominal) {
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 1;
+  synthetic_dataset_options.num_cameras_per_rig = 1;
+  synthetic_dataset_options.num_frames_per_rig = 3;
+  synthetic_dataset_options.num_points3D = 20;
+  synthetic_dataset_options.camera_model_id = SimpleRadialCameraModel::model_id;
+  SynthesizeDataset(synthetic_dataset_options, &reconstruction);
+
+  const auto test_dir = CreateTestDir();
+  const auto bundler_path = test_dir / "bundle.out";
+  const auto list_path = test_dir / "list.txt";
+
+  EXPECT_TRUE(ExportBundler(reconstruction, bundler_path, list_path));
+  EXPECT_TRUE(std::filesystem::exists(bundler_path));
+  EXPECT_TRUE(std::filesystem::exists(list_path));
+}
+
+TEST(ExportBundler, UnsupportedCameraModel) {
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 1;
+  synthetic_dataset_options.num_cameras_per_rig = 1;
+  synthetic_dataset_options.num_frames_per_rig = 1;
+  synthetic_dataset_options.num_points3D = 5;
+  synthetic_dataset_options.camera_model_id = FullOpenCVCameraModel::model_id;
+  synthetic_dataset_options.camera_params = {
+      1280, 1280, 512, 384, 0.05, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  SynthesizeDataset(synthetic_dataset_options, &reconstruction);
+
+  const auto test_dir = CreateTestDir();
+  const auto bundler_path = test_dir / "bundle.out";
+  const auto list_path = test_dir / "list.txt";
+
+  EXPECT_FALSE(ExportBundler(reconstruction, bundler_path, list_path, false));
+}
+
+TEST(ExportPLY, Nominal) {
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 1;
+  synthetic_dataset_options.num_cameras_per_rig = 1;
+  synthetic_dataset_options.num_frames_per_rig = 2;
+  synthetic_dataset_options.num_points3D = 50;
+  SynthesizeDataset(synthetic_dataset_options, &reconstruction);
+
+  const auto test_dir = CreateTestDir();
+  const auto ply_path = test_dir / "points.ply";
+
+  ExportPLY(reconstruction, ply_path);
+  EXPECT_TRUE(std::filesystem::exists(ply_path));
+  EXPECT_GT(std::filesystem::file_size(ply_path), 0);
+}
+
+TEST(ExportVRML, Nominal) {
+  Reconstruction reconstruction;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 1;
+  synthetic_dataset_options.num_cameras_per_rig = 1;
+  synthetic_dataset_options.num_frames_per_rig = 3;
+  synthetic_dataset_options.num_points3D = 25;
+  SynthesizeDataset(synthetic_dataset_options, &reconstruction);
+
+  const auto test_dir = CreateTestDir();
+  const auto images_path = test_dir / "images.wrl";
+  const auto points3D_path = test_dir / "points3D.wrl";
+  const double image_scale = 1.0;
+  const Eigen::Vector3d image_rgb(1.0, 0.0, 0.0);
+
+  ExportVRML(
+      reconstruction, images_path, points3D_path, image_scale, image_rgb);
+  EXPECT_TRUE(std::filesystem::exists(images_path));
+  EXPECT_TRUE(std::filesystem::exists(points3D_path));
+}
+
+// Custom numpunct facet that uses comma as decimal separator, for testing
+// locale independence without requiring a specific system locale.
+struct CommaDecimalFacet : std::numpunct<char> {
+ protected:
+  char do_decimal_point() const override { return ','; }
+};
+
+TEST(TextIO, LocaleIndependentRoundtrip) {
+  // Set global locale to use comma as decimal separator.
+  const std::locale original_locale = std::locale::global(
+      std::locale(std::locale::classic(), new CommaDecimalFacet));
+
+  // Verify that the locale is used correctly.
+  std::stringstream ss;
+  ss << 1.23;
+  EXPECT_EQ(ss.str(), "1,23");
+
+  Reconstruction orig;
+  SyntheticDatasetOptions synthetic_dataset_options;
+  synthetic_dataset_options.num_rigs = 2;
+  synthetic_dataset_options.num_cameras_per_rig = 2;
+  synthetic_dataset_options.num_frames_per_rig = 3;
+  synthetic_dataset_options.num_points3D = 50;
+  SynthesizeDataset(synthetic_dataset_options, &orig);
+
+  // Write under comma-decimal locale.
+  ReaderWriterTextStringStream rw;
+  rw.WriteRigs(orig);
+  rw.WriteCameras(orig);
+  rw.WriteFrames(orig);
+  rw.WriteImages(orig);
+  rw.WritePoints3D(orig);
+
+  // Verify written float data uses dot, not comma, as decimal separator.
+  // Check a data line (skip comment lines starting with '#').
+  {
+    std::istringstream iss(rw.CamerasStr());
+    std::string line;
+    while (std::getline(iss, line)) {
+      if (!line.empty() && line[0] != '#') {
+        EXPECT_THAT(line, testing::HasSubstr("."));
+        EXPECT_THAT(line, testing::Not(testing::HasSubstr(",")));
+      }
+    }
+  }
+
+  // Read back under comma-decimal locale.
+  Reconstruction test;
+  rw.ReadCameras(test);
+  EXPECT_EQ(orig.Cameras(), test.Cameras());
+  rw.ReadRigs(test);
+  EXPECT_EQ(orig.Rigs(), test.Rigs());
+  rw.ReadFrames(test);
+  EXPECT_EQ(orig.Frames(), test.Frames());
+  rw.ReadImages(test);
+  EXPECT_EQ(orig.Images(), test.Images());
+  rw.ReadPoints3D(test);
+  EXPECT_EQ(orig.Points3D(), test.Points3D());
+
+  // Restore original locale.
+  std::locale::global(original_locale);
+}
 
 }  // namespace
 }  // namespace colmap

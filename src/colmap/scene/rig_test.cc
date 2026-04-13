@@ -41,8 +41,8 @@
 namespace colmap {
 namespace {
 
-std::string WriteTestConfig(const std::string& config) {
-  std::string file_path = CreateTestDir() + "/config.json";
+std::filesystem::path WriteTestConfig(const std::string& config) {
+  const auto file_path = CreateTestDir() / "config.json";
   std::ofstream file(file_path);
   file << config << '\n';
   return file_path;
@@ -151,9 +151,9 @@ TEST(ReadRigConfig, Nominal) {
   EXPECT_EQ(configs[0].cameras[1].image_prefix, "rig1/camera2/");
   EXPECT_FALSE(configs[0].cameras[1].ref_sensor);
   ASSERT_TRUE(configs[0].cameras[1].cam_from_rig.has_value());
-  EXPECT_EQ(configs[0].cameras[1].cam_from_rig->rotation.coeffs(),
+  EXPECT_EQ(configs[0].cameras[1].cam_from_rig->rotation().coeffs(),
             Eigen::Vector4d(1, 0, 0, 0));
-  EXPECT_EQ(configs[0].cameras[1].cam_from_rig->translation,
+  EXPECT_EQ(configs[0].cameras[1].cam_from_rig->translation(),
             Eigen::Vector3d(1, 2, 3));
   ASSERT_FALSE(configs[0].cameras[1].camera.has_value());
 
@@ -239,7 +239,7 @@ TEST(ApplyRigConfig, WithDifferingDatabaseAndReconstructionIds) {
     differing_rig.SetRigId(rig.RigId() + 1);
     differing_rig.AddRefSensor(
         sensor_t(rig.RefSensorId().type, rig.RefSensorId().id + 1));
-    for (const auto& [sensor_id, sensor_from_rig] : rig.Sensors()) {
+    for (const auto& [sensor_id, sensor_from_rig] : rig.NonRefSensors()) {
       differing_rig.AddSensor(sensor_t(sensor_id.type, sensor_id.id + 1),
                               sensor_from_rig);
     }
@@ -250,7 +250,7 @@ TEST(ApplyRigConfig, WithDifferingDatabaseAndReconstructionIds) {
     differing_frame.ResetRigPtr();
     differing_frame.SetFrameId(frame.FrameId() + 1);
     differing_frame.SetRigId(frame.RigId() + 1);
-    differing_frame.DataIds().clear();
+    differing_frame.ClearDataIds();
     for (auto& data_id : frame.DataIds()) {
       differing_frame.AddDataId(
           data_t(sensor_t(data_id.sensor_id.type, data_id.sensor_id.id + 1),
@@ -340,11 +340,11 @@ TEST(ApplyRigConfig, WithoutReconstruction) {
   EXPECT_EQ(database->NumRigs(), 1);
   EXPECT_EQ(database->NumFrames(), 5);
   const auto [sensor_id2, sensor2_from_rig] =
-      *database->ReadAllRigs().at(0).Sensors().begin();
-  EXPECT_EQ(sensor2_from_rig.value().rotation.coeffs(),
-            camera2.cam_from_rig.value().rotation.coeffs());
-  EXPECT_EQ(sensor2_from_rig.value().translation,
-            camera2.cam_from_rig.value().translation);
+      *database->ReadAllRigs().at(0).NonRefSensors().begin();
+  EXPECT_EQ(sensor2_from_rig.value().rotation().coeffs(),
+            camera2.cam_from_rig.value().rotation().coeffs());
+  EXPECT_EQ(sensor2_from_rig.value().translation(),
+            camera2.cam_from_rig.value().translation());
   EXPECT_EQ(database->ReadCamera(sensor_id2.id), camera2.camera);
 }
 

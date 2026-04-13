@@ -1,4 +1,8 @@
+#include "colmap/util/logging.h"
+
 #include "pycolmap/pybind11_extension.h"
+
+#include <filesystem>
 
 #include <glog/logging.h>
 #include <pybind11/pybind11.h>
@@ -40,9 +44,11 @@ void BindLogging(py::module& m) {
       .def_readwrite_static("verbose_level", &FLAGS_v)
       .def_static(
           "set_log_destination",
-          [](const Logging::LogSeverity severity, const std::string& path) {
+          [](const Logging::LogSeverity severity,
+             const std::filesystem::path& path) {
             google::SetLogDestination(
-                static_cast<google::LogSeverity>(severity), path.c_str());
+                static_cast<google::LogSeverity>(severity),
+                path.string().c_str());
           },
           py::arg("level"),
           py::arg("path"))
@@ -94,6 +100,14 @@ void BindLogging(py::module& m) {
           },
           py::arg("message"));
 
+#if COLMAP_GLOG_HAS_STDOUT_SUPPORT
+  PyLogging.def_readwrite_static("logtostdout", &FLAGS_logtostdout)
+      .def_readwrite_static("colorlogtostdout", &FLAGS_colorlogtostdout);
+#endif
+#if COLMAP_GLOG_HAS_COLOR_SUPPORT
+  PyLogging.def_readwrite_static("colorlogtostderr", &FLAGS_colorlogtostderr);
+#endif
+
 #if defined(GLOG_VERSION_MAJOR) && \
     (GLOG_VERSION_MAJOR > 0 || GLOG_VERSION_MINOR >= 6)
   if (!google::IsGoogleLoggingInitialized())
@@ -101,8 +115,12 @@ void BindLogging(py::module& m) {
   if (!py::module_::import("sys").attr("modules").contains("pyceres"))
 #endif
   {
+#if !defined(COLMAP_NO_INIT_GOOGLE_LOGGING)
     google::InitGoogleLogging("");
     google::InstallFailureSignalHandler();
+#endif
   }
+#if !defined(COLMAP_NO_INIT_GOOGLE_LOGGING)
   FLAGS_alsologtostderr = true;
+#endif
 }

@@ -37,6 +37,9 @@
 #include "colmap/util/threading.h"
 #include "colmap/util/timer.h"
 
+#include <fstream>
+#include <unordered_set>
+
 #include <Eigen/Geometry>
 
 namespace colmap {
@@ -72,8 +75,8 @@ int FindNextImage(const std::vector<std::vector<int>>& overlapping_images,
 }  // namespace internal
 
 void StereoFusionOptions::Print() const {
-#define PrintOption(option) LOG(INFO) << #option ": " << (option) << '\n';
-  PrintHeading2("StereoFusion::Options");
+#define PrintOption(option) LOG(INFO) << #option ": " << (option);
+  LOG_HEADING2("StereoFusion::Options");
   PrintOption(mask_path);
   PrintOption(max_image_size);
   PrintOption(min_num_pixels);
@@ -105,7 +108,7 @@ bool StereoFusionOptions::Check() const {
 }
 
 StereoFusion::StereoFusion(const StereoFusionOptions& options,
-                           const std::string& workspace_path,
+                           const std::filesystem::path& workspace_path,
                            const std::string& workspace_format,
                            const std::string& pmvs_option_name,
                            const std::string& input_type)
@@ -157,8 +160,8 @@ void StereoFusion::Run() {
   workspace_options.workspace_format = workspace_format_;
   workspace_options.input_type = input_type_;
 
-  const auto image_names = ReadTextFileLines(JoinPaths(
-      workspace_path_, workspace_options.stereo_folder, "fusion.cfg"));
+  const auto image_names = ReadTextFileLines(
+      workspace_path_ / workspace_options.stereo_folder / "fusion.cfg");
   int num_threads = 1;
   if (options_.use_cache) {
     workspace_ = std::make_unique<CachedWorkspace>(workspace_options);
@@ -342,22 +345,20 @@ void StereoFusion::InitFusedPixelMask(int image_idx,
   Mat<char>& fused_pixel_mask = fused_pixel_masks_.at(image_idx);
   const std::string mask_image_name =
       workspace_->GetModel().GetImageName(image_idx);
-  std::string mask_path =
-      JoinPaths(options_.mask_path, mask_image_name + ".png");
+  auto mask_path = options_.mask_path / (mask_image_name + ".png");
   if (!ExistsFile(mask_path) && HasFileExtension(mask_image_name, ".png")) {
-    mask_path = JoinPaths(options_.mask_path, mask_image_name);
+    mask_path = options_.mask_path / mask_image_name;
   }
   fused_pixel_mask = Mat<char>(width, height, 1);
   if (!options_.mask_path.empty() && ExistsFile(mask_path) &&
       mask.Read(mask_path, false)) {
-    BitmapColor<uint8_t> color;
     mask.Rescale(static_cast<int>(width),
                  static_cast<int>(height),
                  Bitmap::RescaleFilter::kBox);
     for (size_t row = 0; row < height; ++row) {
       for (size_t col = 0; col < width; ++col) {
-        mask.GetPixel(col, row, &color);
-        fused_pixel_mask.Set(row, col, color.r == 0 ? 1 : 0);
+        const auto color = mask.GetPixel(col, row);
+        fused_pixel_mask.Set(row, col, (!color || color->r == 0) ? 1 : 0);
       }
     }
   } else {
@@ -454,10 +455,12 @@ void StereoFusion::Fuse(const int thread_id,
         Eigen::Vector4f(col * depth, row * depth, depth, 1.0f);
 
     // Read the color of the pixel.
-    BitmapColor<uint8_t> color;
     const auto& bitmap_scale = bitmap_scales_.at(image_idx);
-    workspace_->GetBitmap(image_idx).InterpolateNearestNeighbor(
-        col / bitmap_scale.first, row / bitmap_scale.second, &color);
+    const auto color =
+        workspace_->GetBitmap(image_idx)
+            .InterpolateNearestNeighbor(col / bitmap_scale.first,
+                                        row / bitmap_scale.second)
+            .value_or(BitmapColor<uint8_t>(0));
 
     // Set the current pixel as visited.
     fused_pixel_mask.Set(row, col, 1);
@@ -556,7 +559,7 @@ void StereoFusion::Fuse(const int thread_id,
 }
 
 void WritePointsVisibility(
-    const std::string& path,
+    const std::filesystem::path& path,
     const std::vector<std::vector<int>>& points_visibility) {
   std::fstream file(path, std::ios::out | std::ios::binary);
   THROW_CHECK_FILE_OPEN(file, path);

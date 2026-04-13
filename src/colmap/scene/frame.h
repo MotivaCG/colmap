@@ -33,8 +33,6 @@
 #include "colmap/sensor/rig.h"
 #include "colmap/util/types.h"
 
-#include <cstdint>
-#include <memory>
 #include <optional>
 #include <set>
 
@@ -45,18 +43,32 @@ namespace colmap {
 // the list of data ids.
 class Frame {
  public:
+  Frame() = default;
+  Frame(const Frame& other);
+  Frame& operator=(const Frame& other);
+  Frame(Frame&&) = default;
+  Frame& operator=(Frame&&) = default;
+
   // Access the unique identifier of the frame.
   inline frame_t FrameId() const;
   inline void SetFrameId(frame_t frame_id);
 
   // Access the frame's associated data.
-  inline std::set<data_t>& DataIds();
   inline const std::set<data_t>& DataIds() const;
   inline void AddDataId(const data_t& data_id);
   inline size_t NumDataIds() const;
 
   // Check whether the data is associated with the frame.
   inline bool HasDataId(data_t data_id) const;
+
+  // Finalize the data ids, preventing further modifications. This is called
+  // when the frame is added to a reconstruction to ensure consistency of
+  // cached counters like num_reg_images_.
+  inline void FinalizeDataIds();
+  inline bool HasFinalDataIds() const;
+
+  // Clear all the associated data.
+  void ClearDataIds();
 
   // Access the unique identifier of the rig. Note that multiple frames
   // might share the same rig.
@@ -67,7 +79,7 @@ class Frame {
   // Access to the underlying, shared rig object.
   // This is typically only set when the frame was added to a reconstruction.
   inline class Rig* RigPtr() const;
-  inline void SetRigPtr(class Rig* rig);
+  void SetRigPtr(class Rig* rig);
   inline void ResetRigPtr();
   // Check if the frame has a non-trivial rig.
   inline bool HasRigPtr() const;
@@ -88,30 +100,34 @@ class Frame {
   // Set the world to frame from the given camera from world transformation.
   void SetCamFromWorld(camera_t camera_id, const Rigid3d& cam_from_world);
 
-  // Convenience method with view into all image data identifiers.
-  inline auto ImageIds() const {
+  // Convenience method with view into all data identifiers of a sensor type.
+  inline auto DataIds(SensorType type) const {
     return filter_view(
-        [](const data_t& data_id) {
-          return data_id.sensor_id.type == SensorType::CAMERA;
+        [type](const data_t& data_id) {
+          return data_id.sensor_id.type == type;
         },
         data_ids_.begin(),
         data_ids_.end());
   }
+
+  // Convenience method with view into all image data identifiers.
+  inline auto ImageIds() const { return DataIds(SensorType::CAMERA); }
 
   inline bool operator==(const Frame& other) const;
   inline bool operator!=(const Frame& other) const;
 
  private:
   frame_t frame_id_ = kInvalidFrameId;
+  rig_t rig_id_ = kInvalidRigId;
+
   std::set<data_t> data_ids_;
+  bool has_final_data_ids_ = false;
 
   // Store the rig_from_world transformation and an optional rig calibration.
   // If the rig calibration is a nullptr, the frame becomes a single sensor
   // case, where rig modeling is no longer needed.
   std::optional<Rigid3d> rig_from_world_;
 
-  // Rig calibration.
-  rig_t rig_id_ = kInvalidRigId;
   class Rig* rig_ptr_ = nullptr;
 };
 
@@ -125,11 +141,12 @@ frame_t Frame::FrameId() const { return frame_id_; }
 
 void Frame::SetFrameId(frame_t frame_id) { frame_id_ = frame_id; }
 
-std::set<data_t>& Frame::DataIds() { return data_ids_; }
-
 const std::set<data_t>& Frame::DataIds() const { return data_ids_; }
 
 void Frame::AddDataId(const data_t& data_id) {
+  THROW_CHECK(!has_final_data_ids_)
+      << "Cannot add data id to a finalized frame. Data ids must be added "
+         "before the frame is added to a reconstruction.";
   if (HasRigPtr()) {
     THROW_CHECK(RigPtr()->HasSensor(data_id.sensor_id));
   }
@@ -142,6 +159,10 @@ bool Frame::HasDataId(data_t data_id) const {
   return data_ids_.find(data_id) != data_ids_.end();
 }
 
+void Frame::FinalizeDataIds() { has_final_data_ids_ = true; }
+
+bool Frame::HasFinalDataIds() const { return has_final_data_ids_; }
+
 rig_t Frame::RigId() const { return rig_id_; }
 
 void Frame::SetRigId(const rig_t rig_id) {
@@ -153,21 +174,6 @@ void Frame::SetRigId(const rig_t rig_id) {
 bool Frame::HasRigId() const { return rig_id_ != kInvalidRigId; }
 
 Rig* Frame::RigPtr() const { return THROW_CHECK_NOTNULL(rig_ptr_); }
-
-void Frame::SetRigPtr(class Rig* rig) {
-  THROW_CHECK_NOTNULL(rig);
-  THROW_CHECK_NE(rig->RigId(), kInvalidRigId);
-  for (const auto& data_id : data_ids_) {
-    THROW_CHECK(rig->HasSensor(data_id.sensor_id));
-  }
-  if (HasRigPtr()) {
-    rig_id_ = rig->RigId();
-    rig_ptr_ = rig;
-  } else {
-    THROW_CHECK_EQ(rig->RigId(), rig_id_);
-    rig_ptr_ = rig;
-  }
-}
 
 void Frame::ResetRigPtr() { rig_ptr_ = nullptr; }
 

@@ -51,6 +51,39 @@ TEST(Frame, Default) {
   EXPECT_EQ(frame.NumDataIds(), 0);
 }
 
+TEST(Frame, Copy) {
+  Frame frame;
+  frame.SetFrameId(1);
+  frame.SetRigId(2);
+  const data_t data_id1(sensor_t(SensorType::CAMERA, 1), 1);
+  const data_t data_id2(sensor_t(SensorType::CAMERA, 1), 2);
+  frame.AddDataId(data_id1);
+  frame.FinalizeDataIds();
+
+  // Copy constructor: copy should not be finalized.
+  Frame copy(frame);
+  EXPECT_FALSE(copy.HasFinalDataIds());
+  EXPECT_EQ(copy.FrameId(), 1);
+  EXPECT_EQ(copy.RigId(), 2);
+  EXPECT_TRUE(copy.HasDataId(data_id1));
+  EXPECT_NO_THROW(copy.AddDataId(data_id2));
+  EXPECT_TRUE(copy.HasDataId(data_id2));
+  EXPECT_NO_THROW(copy.ClearDataIds());
+  EXPECT_EQ(copy.NumDataIds(), 0);
+
+  // Copy assignment: target should not be finalized.
+  Frame assigned;
+  assigned = frame;
+  EXPECT_FALSE(assigned.HasFinalDataIds());
+  EXPECT_EQ(assigned.FrameId(), 1);
+  EXPECT_TRUE(assigned.HasDataId(data_id1));
+  EXPECT_NO_THROW(assigned.AddDataId(data_id2));
+
+  // Original remains finalized.
+  EXPECT_TRUE(frame.HasFinalDataIds());
+  EXPECT_ANY_THROW(frame.AddDataId(data_id2));
+}
+
 TEST(Frame, SetUp) {
   Frame frame;
   Rig rig;
@@ -84,6 +117,9 @@ TEST(Frame, SetUp) {
   EXPECT_TRUE(frame.HasDataId(data_id2));
   EXPECT_THAT(frame.DataIds(),
               testing::UnorderedElementsAre(data_id1, data_id2));
+  frame.ClearDataIds();
+  EXPECT_EQ(frame.NumDataIds(), 0);
+  EXPECT_THAT(frame.DataIds(), testing::IsEmpty());
   EXPECT_FALSE(frame.HasPose());
 }
 
@@ -134,6 +170,25 @@ TEST(Frame, AddDataId) {
   EXPECT_ANY_THROW(frame.AddDataId(data_t(sensor_id3, 2)));
 }
 
+TEST(Frame, FilteredDataIds) {
+  Frame frame;
+  const data_t data_id1(sensor_t(SensorType::IMU, 0), 2);
+  frame.AddDataId(data_id1);
+  const data_t data_id2(sensor_t(SensorType::CAMERA, 0), 2);
+  frame.AddDataId(data_id2);
+  const data_t data_id3(sensor_t(SensorType::CAMERA, 1), 1);
+  frame.AddDataId(data_id3);
+  EXPECT_THAT(std::vector<data_t>(frame.DataIds(SensorType::IMU).begin(),
+                                  frame.DataIds(SensorType::IMU).end()),
+              testing::UnorderedElementsAre(data_id1));
+  EXPECT_THAT(std::vector<data_t>(frame.DataIds(SensorType::CAMERA).begin(),
+                                  frame.DataIds(SensorType::CAMERA).end()),
+              testing::UnorderedElementsAre(data_id2, data_id3));
+  EXPECT_THAT(std::vector<data_t>(frame.DataIds(SensorType::INVALID).begin(),
+                                  frame.DataIds(SensorType::INVALID).end()),
+              testing::IsEmpty());
+}
+
 TEST(Frame, ImageIds) {
   Frame frame;
   const data_t data_id1(sensor_t(SensorType::IMU, 0), 2);
@@ -181,10 +236,10 @@ TEST(Frame, SetCamFromWorld) {
   const Rigid3d cam2_from_world = TestRigid3d();
   frame.SetCamFromWorld(sensor_id2.id, cam2_from_world);
   const Rigid3d sensor2_from_world = frame.SensorFromWorld(sensor_id2);
-  EXPECT_THAT(cam2_from_world.translation,
-              EigenMatrixNear(sensor2_from_world.translation, 1e-6));
-  EXPECT_THAT(cam2_from_world.rotation.coeffs(),
-              EigenMatrixNear(sensor2_from_world.rotation.coeffs(), 1e-6));
+  EXPECT_THAT(cam2_from_world.translation(),
+              EigenMatrixNear(sensor2_from_world.translation(), 1e-6));
+  EXPECT_THAT(cam2_from_world.rotation().coeffs(),
+              EigenMatrixNear(sensor2_from_world.rotation().coeffs(), 1e-6));
 }
 
 TEST(Image, Equals) {
@@ -208,6 +263,22 @@ TEST(Frame, Print) {
   EXPECT_EQ(stream.str(),
             "Frame(frame_id=1, rig_id=2, has_pose=0, "
             "data_ids=[(CAMERA, 1, 3), (IMU, 0, 2)])");
+}
+
+TEST(Frame, FinalizeDataIds) {
+  Frame frame;
+  frame.SetFrameId(1);
+  frame.SetRigId(2);
+  const data_t data_id1(sensor_t(SensorType::CAMERA, 1), 1);
+  const data_t data_id2(sensor_t(SensorType::CAMERA, 1), 2);
+  frame.AddDataId(data_id1);
+  EXPECT_FALSE(frame.HasFinalDataIds());
+  frame.FinalizeDataIds();
+  EXPECT_TRUE(frame.HasFinalDataIds());
+  EXPECT_ANY_THROW(frame.AddDataId(data_id2));
+  EXPECT_ANY_THROW(frame.ClearDataIds());
+  EXPECT_EQ(frame.NumDataIds(), 1);
+  EXPECT_TRUE(frame.HasDataId(data_id1));
 }
 
 }  // namespace

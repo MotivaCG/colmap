@@ -31,6 +31,57 @@
 
 namespace colmap {
 
+Frame::Frame(const Frame& other)
+    : frame_id_(other.frame_id_),
+      rig_id_(other.rig_id_),
+      data_ids_(other.data_ids_),
+      has_final_data_ids_(false),
+      rig_from_world_(other.rig_from_world_),
+      rig_ptr_(other.rig_ptr_) {}
+
+Frame& Frame::operator=(const Frame& other) {
+  if (this != &other) {
+    frame_id_ = other.frame_id_;
+    rig_id_ = other.rig_id_;
+    data_ids_ = other.data_ids_;
+    has_final_data_ids_ = false;
+    rig_from_world_ = other.rig_from_world_;
+    rig_ptr_ = other.rig_ptr_;
+  }
+  return *this;
+}
+
+void Frame::ClearDataIds() {
+  THROW_CHECK(!has_final_data_ids_)
+      << "Cannot clear data ids of a finalized frame.";
+  data_ids_.clear();
+}
+
+void Frame::SetRigPtr(class Rig* rig) {
+  THROW_CHECK_NOTNULL(rig);
+  THROW_CHECK_NE(rig->RigId(), kInvalidRigId);
+  for (const auto& data_id : data_ids_) {
+    switch (data_id.sensor_id.type) {
+      case SensorType::CAMERA:
+        THROW_CHECK(rig->HasSensor(data_id.sensor_id));
+        break;
+      case SensorType::IMU:
+        // Note that we do not (yet) support IMU measurement data.
+        break;
+      case SensorType::INVALID:
+        LOG(FATAL_THROW) << "Invalid sensor type: " << data_id.sensor_id.type;
+        break;
+    }
+  }
+  if (HasRigPtr()) {
+    rig_id_ = rig->RigId();
+    rig_ptr_ = rig;
+  } else {
+    THROW_CHECK_EQ(rig->RigId(), rig_id_);
+    rig_ptr_ = rig;
+  }
+}
+
 void Frame::SetCamFromWorld(camera_t camera_id, const Rigid3d& cam_from_world) {
   THROW_CHECK_NOTNULL(rig_ptr_);
   const sensor_t sensor_id(SensorType::CAMERA, camera_id);
