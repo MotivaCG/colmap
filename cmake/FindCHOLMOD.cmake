@@ -54,6 +54,12 @@ if(TARGET CHOLMOD::CHOLMOD)
     set(CHOLMOD_FOUND TRUE)
     message(STATUS "Found CHOLMOD")
     message(STATUS "  Target : CHOLMOD::CHOLMOD")
+elseif(TARGET SuiteSparse::CHOLMOD)
+    add_library(CHOLMOD::CHOLMOD INTERFACE IMPORTED)
+    target_link_libraries(CHOLMOD::CHOLMOD INTERFACE SuiteSparse::CHOLMOD)
+    set(CHOLMOD_FOUND TRUE)
+    message(STATUS "Found CHOLMOD")
+    message(STATUS "  Target : SuiteSparse::CHOLMOD")
 else()
     list(APPEND CHOLMOD_INCLUDE_SEARCH_PATHS
         ${CHOLMOD_INCLUDE_DIR_HINTS}

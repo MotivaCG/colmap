@@ -116,6 +116,12 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 ################################################################################
 # Dependency configuration
 ################################################################################
+set(OpenMP_CUDA_FLAGS "-Xcompiler /openmp" CACHE STRING "Workaround for FindOpenMP" FORCE)
+set(OpenMP_CUDA_LIB_NAMES "" CACHE STRING "Workaround for FindOpenMP" FORCE)
+
+# --- WORKAROUND FOR GLOG/GFLAGS TRANSITIVE DEPENDENCY ---
+# Force CMake to find the gflags target before COLMAP's custom FindGlog.cmake requires it
+find_package(gflags CONFIG REQUIRED)
 
 set(COLMAP_FIND_QUIETLY FALSE)
 include(cmake/FindDependencies.cmake)
