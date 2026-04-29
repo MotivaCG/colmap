@@ -15,6 +15,9 @@ compile_commands.json
 .cache
 build*/
 built*/
+LinuxBuild
+COLMAPPortable*
+COLMAPPortable/
 install*/
 data/
 benchmark/reconstruction/data/
