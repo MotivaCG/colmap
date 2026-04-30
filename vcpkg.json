@@ -104,8 +104,84 @@
         {
           "name": "onnxruntime-gpu",
           "platform": "windows"
+        },
+        {
+            "name": "metis",
+            "version": "2022-07-27"
+        },
+        {
+            "name": "gklib",
+            "version": "2023-03-27"
         }
-      ]
+    ],
+    "default-features": [
+        "gui",
+        "download"
+    ],
+    "features": {
+        "tests": {
+            "description": "Build all tests.",
+            "dependencies": [
+                "gtest"
+            ]
+        },
+        "cuda": {
+            "description": "Build with CUDA support.",
+            "dependencies": [
+                "glew",
+                "cuda"
+            ]
+        },
+        "onnx": {
+            "description": "Build with ONNX support.",
+            "dependencies": [
+                {
+                    "name": "onnxruntime-gpu",
+                    "platform": "windows"
+                }
+            ]
+        },
+        "gui": {
+            "description": "Build with GUI support.",
+            "dependencies": [
+                "glew",
+                "qtbase",
+                "qtsvg"
+            ]
+        },
+        "cgal": {
+            "description": "Build with CGAL support.",
+            "dependencies": [
+                "cgal"
+            ]
+        },
+        "download": {
+            "description": "Build with download support.",
+            "dependencies": [
+                {
+                    "name": "curl",
+                    "features": [
+                        "sspi"
+                    ],
+                    "platform": "windows"
+                },
+                {
+                    "name": "curl",
+                    "features": [
+                        "openssl"
+                    ],
+                    "platform": "!windows"
+                },
+                {
+                    "name": "cryptopp",
+                    "platform": "windows & arm64"
+                },
+                {
+                    "name": "openssl",
+                    "platform": "!(windows & arm64)"
+                }
+            ]
+        }
     },
     "tests": {
       "description": "Build all tests.",
